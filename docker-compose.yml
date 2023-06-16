@@ -12,6 +12,7 @@ x-base-logged-service: &base_logged_service
       loki-batch-size: 400
       max-size: 10m
       max-file: 2
+  restart: unless-stopped
 
 x-base-network-config: &base_network_config
   networks: 
@@ -25,7 +26,6 @@ services:
     container_name: loki
     volumes:
       - /storage/02/linux/docker/loki/local-config.yaml:/etc/loki/local-config.yaml
-
     ports:
       - "3100:3100"
     command: -config.file=/etc/loki/local-config.yaml
@@ -47,7 +47,6 @@ services:
     image: grafana/grafana:latest
     container_name: grafana
     user: 1000:1001
-    restart: 'unless-stopped'
     volumes:
       # data
       - /storage/02/linux/docker/grafana/data:/var/lib/grafana
@@ -85,7 +84,6 @@ services:
     <<: *base_network_config
     image: mongo-express
     container_name: express
-    restart: always
     depends_on:
       - mongo
 
@@ -124,6 +122,41 @@ services:
       - grafana
       - mongo
 
+  # prometheus / node-exporter
+  node-exporter:
+    <<: *base_logged_service
+    <<: *base_network_config
+    image: prom/node-exporter
+    container_name: node-exporter
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    command:
+      - '--path.procfs=/host/proc'
+      - '--path.sysfs=/host/sys'
+      - '--path.rootfs=/rootfs'
+      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
+    ports:
+      - 9100:9100
+  
+  prometheus:
+    <<: *base_logged_service
+    <<: *base_network_config
+    image: prom/prometheus
+    user: 1000:1001
+    container_name: prometheus
+    volumes:
+      - /storage/02/linux/docker/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - /storage/02/linux/docker/prometheus/data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--web.enable-lifecycle'
+    ports:
+      - 9090:9090
 
 networks:
   web:
