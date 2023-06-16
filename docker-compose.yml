@@ -1,0 +1,130 @@
+version: '3.9'
+
+# set up logging for all services which need it
+x-base-logged-service: &base_logged_service
+  depends_on: 
+    - loki
+  logging:
+    driver: loki
+    options:
+      loki-url: "http://localhost:3100/loki/api/v1/push"
+      loki-retries: 1
+      loki-batch-size: 400
+      max-size: 10m
+      max-file: 2
+
+x-base-network-config: &base_network_config
+  networks: 
+   - web
+
+services:
+  # grafana stack
+  loki:
+    <<: *base_network_config
+    image: grafana/loki
+    container_name: loki
+    volumes:
+      - /storage/02/linux/docker/loki/local-config.yaml:/etc/loki/local-config.yaml
+
+    ports:
+      - "3100:3100"
+    command: -config.file=/etc/loki/local-config.yaml
+
+
+  promtail:
+    <<: *base_logged_service
+    <<: *base_network_config
+    image: grafana/promtail
+    container_name: promtail
+    volumes:
+      - /var/log:/var/log
+      - /storage/02/linux/docker/promtail/config.yml:/etc/promtail/config.yml
+    command: -config.file=/etc/promtail/config.yml
+
+  grafana:
+    <<: *base_logged_service
+    <<: *base_network_config
+    image: grafana/grafana:latest
+    container_name: grafana
+    user: 1000:1001
+    restart: 'unless-stopped'
+    volumes:
+      # data
+      - /storage/02/linux/docker/grafana/data:/var/lib/grafana
+      
+      # should implement /etc/grafana/grafana.ini
+      # - /storage/02/linux/docker/grafana/etc:/etc/grafana
+      
+      # will add datasources later for loki..
+      # but this should live outside of container also
+      #- /storage/02/linux/docker/grafana/datasource.yaml:/etc/grafana/provisioning/datasources/datasources.yaml
+    environment:
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin
+      - GF_AUTH_DISABLE_LOGIN_FORM=true
+    ports:
+      - "3000:3000"
+
+
+  # mongo stack
+  mongo:
+    <<: *base_logged_service
+    <<: *base_network_config
+    image: mongo:5.0
+    ports:
+      - 27017:27017
+    container_name: mongo
+    volumes:
+      - /storage/02/linux/docker/mongodb/db:/data/db
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=treehouse
+      - MONGO_INITDB_ROOT_PASSWORD=mongo
+  
+  mongo-express:
+    <<: *base_logged_service
+    <<: *base_network_config
+    image: mongo-express
+    container_name: express
+    restart: always
+    depends_on:
+      - mongo
+
+    ports:
+      - 8081:8081
+    environment:
+      - ME_CONFIG_MONGODB_ENABLE_ADMIN=true
+      - ME_CONFIG_MONGODB_ADMINUSERNAME=treehouse
+      - ME_CONFIG_MONGODB_ADMINPASSWORD=mongo
+      - ME_CONFIG_MONGODB_URL=mongodb://treehouse:mongo@mongo:27017/
+
+  # api services
+  sg-scrape-api:
+    <<: *base_logged_service
+    <<: *base_network_config
+    image: api
+    container_name: api
+    ports:
+      - 2020:2020
+
+  nginx:
+    <<: *base_logged_service
+    <<: *base_network_config
+    container_name: proxy
+    image: nginx
+    ports:
+      - "80:80"
+    volumes:
+      - /storage/02/linux/docker/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+      - /storage/02/code/projects/newtab:/usr/share/nginx/newtab
+      - /storage/02/linux/docker/nginx/static:/usr/share/nginx/html:ro
+    command: "/bin/sh -c 'while :; do sleep 6h & wait $${!}; nginx -s reload; done & nginx -g \"daemon off;\"'"
+    depends_on:
+      - sg-scrape-api
+      - mongo-express
+      - grafana
+      - mongo
+
+
+networks:
+  web:
+    external: true
