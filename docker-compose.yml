@@ -32,8 +32,7 @@ services:
 
 
   promtail:
-    <<: *base_logged_service
-    <<: *base_network_config
+    <<: [*base_logged_service, *base_network_config]
     image: grafana/promtail
     container_name: promtail
     volumes:
@@ -43,14 +42,10 @@ services:
 
   
   grafana:
-    <<: *base_logged_service
-    <<: *base_network_config
+    <<: [*base_logged_service, *base_network_config]
     image: grafana/grafana:latest
     container_name: grafana
     user: 1000:1001
-    labels:
-      - "traefik.http.routers.grafana.rule=Host(`jellyfin.treehouse.local`)"
-      - "traefik.http.routers.whoami.rule=Host(`whoami.docker.localhost`)"
     volumes:
       # data
       - /storage/02/linux/docker/grafana/data:/var/lib/grafana
@@ -71,8 +66,7 @@ services:
 
   # mongo stack
   mongo:
-    <<: *base_logged_service
-    <<: *base_network_config
+    <<: [*base_logged_service, *base_network_config]
     image: mongo:5.0
     ports:
       - 27017:27017
@@ -84,8 +78,7 @@ services:
       - MONGO_INITDB_ROOT_PASSWORD=mongo
   
   mongo-express:
-    <<: *base_logged_service
-    <<: *base_network_config
+    <<: [*base_logged_service, *base_network_config]
     image: mongo-express
     container_name: express
     depends_on:
@@ -99,13 +92,9 @@ services:
       - ME_CONFIG_MONGODB_ADMINPASSWORD=mongo
       - ME_CONFIG_MONGODB_URL=mongodb://treehouse:mongo@mongo:27017/
 
-
-
-
   # prometheus / node-exporter
   node-exporter:
-    <<: *base_logged_service
-    <<: *base_network_config
+    <<: [*base_logged_service, *base_network_config]
     image: prom/node-exporter
     container_name: node-exporter
     volumes:
@@ -121,8 +110,7 @@ services:
       - 9100:9100
 
   cadvisor: 
-    <<: *base_logged_service
-    <<: *base_network_config
+    <<: [*base_logged_service, *base_network_config]
     image: gcr.io/cadvisor/cadvisor
     container_name: cadvisor
     volumes:
@@ -134,8 +122,7 @@ services:
       - 8080:8080
   
   prometheus:
-    <<: *base_logged_service
-    <<: *base_network_config
+    <<: [*base_logged_service, *base_network_config]
     image: prom/prometheus
     user: 1000:1001
     container_name: prometheus
@@ -153,36 +140,22 @@ services:
   
   # api services
   sg-scrape-api:
-    <<: *base_logged_service
-    <<: *base_network_config
+    <<: [*base_logged_service, *base_network_config]
     image: api
     container_name: api
     ports:
       - 2020:2020
   
   transmission-magnet-uri-downloader:
-    <<: *base_logged_service
-    <<: *base_network_config 
+    <<: [*base_logged_service, *base_network_config]
     image: keeb/transmission-magnet-uri-service
     container_name: transmission-api-service
     ports:
       - 9200:2020
-
-  # watchtower keeps images up to date
-  watchtower:
-    <<: *base_logged_service
-    <<: *base_network_config
-    container_name: watchtower
-    image: containrrr/watchtower
-    ports:
-      - 8080
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
   
   # proxy
   nginx:
-    <<: *base_logged_service
-    <<: *base_network_config
+    <<: [*base_logged_service, *base_network_config]
     container_name: proxy
     image: nginx
     ports:
@@ -197,6 +170,46 @@ services:
       - mongo-express
       - grafana
       - mongo
+
+  portainer:
+    <<: [*base_logged_service, *base_network_config]
+    image: portainer/portainer-ce:latest
+
+    container_name: portainer
+    ports:
+      - 8000:8000
+      - 9443:9443
+    restart: always
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /storage/02/linux/docker/portainer/data:/data
+
+  jellyfin:
+    <<: [*base_logged_service, *base_network_config]
+    container_name: jellyfin
+    image: jellyfin/jellyfin
+    user: 1000:1001
+    ports:
+      - "8096:8096"
+    volumes:
+      - /storage/02/linux/docker/jellyfin/config:/config
+      - /storage/02/linux/docker/jellyfin/cache:/cache
+      - /mnt/nami/media/video/:/media:ro
+    restart: unless-stopped
+    environment:
+    - JELLYFIN_FFmpeg__probesize=50000000
+    - JELLYFIN_FFmpeg__analyzeduration=50000000
+    - NVIDIA_VISIBLE_DEVICES=all
+    - NVIDIA_DRIVER_CAPABILITIES=all
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
 networks:
   web:
     external: true
